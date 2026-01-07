@@ -3,6 +3,7 @@ import pygame
 import random
 import asyncio
 import json
+import os
 
 # --- Constants ---
 WIDTH, HEIGHT = 400, 600
@@ -19,7 +20,6 @@ SNOW_WHITE = (245, 255, 250)
 SANTA_RED = (220, 20, 60)      
 GRINCH_GREEN = (50, 205, 50)   
 GOLD = (255, 215, 0)           
-DARK_OVERLAY = (0, 0, 0, 180)
 BUTTON_COLOR = (200, 50, 50) 
 
 # --- File Storage ---
@@ -34,7 +34,11 @@ STATE_GAME = "game"
 class Player(pygame.sprite.Sprite):
     def __init__(self):
         super().__init__()
-        self.image = pygame.Surface((30, 40), pygame.SRCALPHA)
+        # Optimized: No Alpha channel, using ColorKey for speed
+        self.image = pygame.Surface((30, 40)) 
+        self.image.fill(NIGHT_BLUE) 
+        self.image.set_colorkey(NIGHT_BLUE)
+        
         pygame.draw.rect(self.image, SANTA_RED, (0, 10, 30, 30)) 
         pygame.draw.rect(self.image, SNOW_WHITE, (0, 0, 30, 10)) 
         pygame.draw.circle(self.image, SNOW_WHITE, (15, 0), 5)   
@@ -64,8 +68,8 @@ class Player(pygame.sprite.Sprite):
 class Bullet(pygame.sprite.Sprite):
     def __init__(self, x, y):
         super().__init__()
-        self.image = pygame.Surface((12, 12), pygame.SRCALPHA)
-        pygame.draw.circle(self.image, SNOW_WHITE, (6, 6), 6)
+        self.image = pygame.Surface((10, 10))
+        self.image.fill(SNOW_WHITE)
         self.rect = self.image.get_rect(center=(x, y))
         self.speed = -10
 
@@ -78,8 +82,10 @@ class Platform(pygame.sprite.Sprite):
         super().__init__()
         self.image = pygame.Surface((60, 15))
         self.image.fill(SNOW_WHITE)
-        for i in range(0, 60, 15): 
-            pygame.draw.line(self.image, SANTA_RED, (i, 0), (i+5, 15), 5)
+        # Optimized: Simple lines
+        pygame.draw.line(self.image, SANTA_RED, (15, 0), (20, 15), 4)
+        pygame.draw.line(self.image, SANTA_RED, (30, 0), (35, 15), 4)
+        pygame.draw.line(self.image, SANTA_RED, (45, 0), (50, 15), 4)
         self.rect = self.image.get_rect(topleft=(x, y))
         self.exact_y = float(y)
 
@@ -88,8 +94,8 @@ class Enemy(pygame.sprite.Sprite):
         super().__init__()
         self.image = pygame.Surface((40, 40)) 
         self.image.fill(GRINCH_GREEN)
-        pygame.draw.line(self.image, (0,50,0), (5, 10), (15, 20), 3)
-        pygame.draw.line(self.image, (0,50,0), (35, 10), (25, 20), 3)
+        pygame.draw.rect(self.image, (0,50,0), (5, 10, 10, 5))
+        pygame.draw.rect(self.image, (0,50,0), (25, 10, 10, 5))
         self.rect = self.image.get_rect(topleft=(x, y))
         self.exact_y = float(y)
         self.speed = ENEMY_SPEED
@@ -100,28 +106,15 @@ class Enemy(pygame.sprite.Sprite):
         if self.rect.right > WIDTH or self.rect.left < 0:
             self.direction *= -1
 
-class Star(pygame.sprite.Sprite):
-    def __init__(self):
-        super().__init__()
-        size = random.randint(2, 4)
-        self.image = pygame.Surface((size, size))
-        self.image.fill(SNOW_WHITE)
-        self.rect = self.image.get_rect(center=(random.randint(0, WIDTH), random.randint(0, HEIGHT)))
-        self.speed = random.uniform(0.5, 1.5)
-
-    def update(self):
-        self.rect.y += self.speed
-        if self.rect.top > HEIGHT:
-            self.rect.bottom = 0
-            self.rect.x = random.randint(0, WIDTH)
-
-# --- Optimized Data Saving ---
+# --- Helper Functions ---
 def load_data():
-    try:
-        with open(SAVE_FILE, "r") as f:
-            return json.load(f)
-    except:
-        return None
+    if os.path.exists(SAVE_FILE):
+        try:
+            with open(SAVE_FILE, "r") as f:
+                return json.load(f)
+        except:
+            return None
+    return None
 
 def save_data(data):
     try:
@@ -144,17 +137,24 @@ async def main():
     font_lg = pygame.font.Font(None, 50)
     font_md = pygame.font.Font(None, 36)
     
-    # Shoot Button
-    shoot_btn_radius = 35
-    shoot_btn_center = (WIDTH - 50, HEIGHT - 60)
+    # Pre-Render Shoot Button
+    shoot_btn_surf = pygame.Surface((80, 80))
+    shoot_btn_surf.fill(NIGHT_BLUE)
+    shoot_btn_surf.set_colorkey(NIGHT_BLUE)
+    pygame.draw.circle(shoot_btn_surf, BUTTON_COLOR, (40, 40), 35)
+    pygame.draw.circle(shoot_btn_surf, SNOW_WHITE, (40, 40), 35, 3)
+    pygame.draw.line(shoot_btn_surf, SNOW_WHITE, (30, 40), (50, 40), 2)
+    pygame.draw.line(shoot_btn_surf, SNOW_WHITE, (40, 30), (40, 50), 2)
+    
     shoot_btn_rect = pygame.Rect(WIDTH - 90, HEIGHT - 100, 80, 80)
+    shoot_btn_draw_pos = (WIDTH - 90, HEIGHT - 100)
 
     player = Player()
     platforms = pygame.sprite.Group()
     enemies = pygame.sprite.Group()
     bullets = pygame.sprite.Group()
-    stars = pygame.sprite.Group()
-    for _ in range(50): stars.add(Star())
+    
+    # STARS ARE GONE. NO MORE STARS.
 
     user_data = load_data()
     high_scores = user_data.get("scores", []) if user_data else []
@@ -176,7 +176,6 @@ async def main():
         game_over = False
         
         platforms.add(Platform(WIDTH//2 - 30, HEIGHT - 80))
-        
         last_y = HEIGHT - 80
         for i in range(5):
             gap = random.randint(60, MAX_JUMP_GAP) 
@@ -220,8 +219,7 @@ async def main():
                         reset_game()
                         current_state = STATE_READY
 
-        stars.update()
-
+        # Game Logic
         if current_state == STATE_GAME and not game_over:
             keys = pygame.key.get_pressed()
             if keys[pygame.K_LEFT]: player.move_left()
@@ -286,8 +284,9 @@ async def main():
                 high_scores = high_scores[:5]
                 save_data({"scores": high_scores})
 
+        # --- DRAWING ---
         screen.fill(NIGHT_BLUE)
-        stars.draw(screen) 
+        # NO STARS DRAWN HERE.
         
         if current_state == STATE_MENU:
             draw_text_centered(screen, "EJUMP", font_lg, GOLD, 150)
@@ -299,9 +298,6 @@ async def main():
             platforms.draw(screen)
             enemies.draw(screen)
             screen.blit(player.image, player.rect)
-            s = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-            s.fill((0,0,0,100))
-            screen.blit(s, (0,0))
             draw_text_centered(screen, "Tap to Jump!", font_lg, GOLD, HEIGHT//2)
 
         elif current_state == STATE_GAME:
@@ -313,16 +309,10 @@ async def main():
             score_surf = font_md.render(f"{current_score}", True, GOLD)
             screen.blit(score_surf, (10, 10))
             
-            pygame.draw.circle(screen, BUTTON_COLOR, shoot_btn_center, shoot_btn_radius)
-            pygame.draw.circle(screen, SNOW_WHITE, shoot_btn_center, shoot_btn_radius, 3)
-            cx, cy = shoot_btn_center
-            pygame.draw.line(screen, SNOW_WHITE, (cx-10, cy), (cx+10, cy), 2)
-            pygame.draw.line(screen, SNOW_WHITE, (cx, cy-10), (cx, cy+10), 2)
+            # Draw Button
+            screen.blit(shoot_btn_surf, shoot_btn_draw_pos)
 
             if game_over:
-                s = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-                s.fill((0,0,0,180))
-                screen.blit(s, (0,0))
                 draw_text_centered(screen, "GAME OVER", font_lg, GOLD, 200)
                 draw_text_centered(screen, f"Score: {current_score}", font_md, SNOW_WHITE, 260)
                 draw_text_centered(screen, "Tap to Try Again", font_md, SNOW_WHITE, 350)
